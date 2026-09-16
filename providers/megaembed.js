@@ -28,20 +28,6 @@ async function fetchWithHeaders(url, headers = {}) {
   return response;
 }
 
-async function getQuality(url, headers) {
-  try {
-    const response = await fetchWithHeaders(url, headers);
-    const text = await response.text();
-    const match = text.match(/#EXT-X-STREAM-INF:[^\n]*RESOLUTION=\d+x(\d+)/i);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
-}
-
 function buildEmbedUrl(tmdbId, mediaType, season, episode) {
   const id = encodeURIComponent(tmdbId);
 
@@ -59,48 +45,72 @@ function buildEmbedUrl(tmdbId, mediaType, season, episode) {
   throw new Error('Unsupported media type');
 }
 
-async function buildStreams(html, embedUrl) {
-  const sourcesMatch = html.match(/var sources = (\[[\s\S]*?\]);/);
-  if (!sourcesMatch) {
-    throw new Error('Sources script not found');
+function extractMovieId(html) {
+  const match = html.match(/id="embed-player"\s+data-movie-id="([^"]+)"/);
+  if (!match) {
+    throw new Error('Movie ID not found');
+  }
+  return match[1];
+}
+
+function extractServerId(html) {
+  const match = html.match(/data-id="([^"]+)"\s+class="server dropdown-item"/);
+  if (!match) {
+    throw new Error('Server ID not found');
+  }
+  return match[1];
+}
+
+async function getStreamLink(movieId, serverId) {
+  const url = `${BASE_URL}/ajax/get_stream_link?id=${encodeURIComponent(serverId)}&movie=${encodeURIComponent(movieId)}&is_init=0&captcha=&ref=`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, text/javascript, */*; q=0.01'
+    },
+    redirect: 'follow'
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
-  const sources = JSON.parse(sourcesMatch[1]);
-  const streams = [];
+  const data = await response.json();
 
-  for (const source of sources) {
-    const quality = await getQuality(source.file, {
-      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-      'Referer': embedUrl,
-      'Origin': BASE_URL
-    });
-
-    const stream = {
-      name: 'MegaEmbed',
-      title: `${quality >= 1080 ? '1080p' : quality >= 720 ? '720p' : quality >= 480 ? '480p' : 'Auto'} (${source.label || 'server'})`,
-      url: source.file,
-      quality: quality >= 1080 ? '1080p' : quality >= 720 ? '720p' : quality >= 480 ? '480p' : 'Auto',
-      type: source.type,
-      provider: 'megaembed',
-      behaviorHints: {
-        notWebReady: true,
-        filename: source.file,
-        referer: embedUrl,
-        origin: BASE_URL
-      }
-    };
-
-    streams.push(stream);
+  if (!data.success) {
+    throw new Error(data.error || 'Failed to get stream link');
   }
 
-  return streams;
+  return data.data.link;
 }
 
 async function fetchAndExtract(tmdbId, mediaType, season, episode) {
   const embedUrl = buildEmbedUrl(tmdbId, mediaType, season, episode);
+
   const response = await fetchWithHeaders(embedUrl);
   const html = await response.text();
-  return buildStreams(html, embedUrl);
+
+  const movieId = extractMovieId(html);
+  const serverId = extractServerId(html);
+
+  const streamLink = await getStreamLink(movieId, serverId);
+
+  return [{
+    name: 'MegaEmbed',
+    title: 'MegaEmbed',
+    url: streamLink,
+    quality: 'Auto',
+    type: mediaType === 'movie' ? 'movie' : 'tv',
+    provider: 'megaembed',
+    behaviorHints: {
+      notWebReady: true,
+      filename: streamLink,
+      referer: BASE_URL,
+      origin: BASE_URL
+    }
+  }];
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
