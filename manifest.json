@@ -1,17 +1,17 @@
 {
-  "name": "Peachify Custom",
-  "version": "1.0.0",
+  "name": "MegaEmbed Custom",
+  "version": "1.0.1",
   "author": "Vini",
-  "description": "Plugin personalizado com apenas o provedor Peachify",
+  "description": "Plugin personalizado com apenas o provedor MegaEmbed",
   "scrapers": [
     {
-      "id": "peachify",
-      "name": "Peachify",
-      "description": "Peachify - API | 1080p/720p",
-      "version": "1.0.0",
+      "id": "megaembed",
+      "name": "MegaEmbed",
+      "description": "MegaEmbed - API | 1080p/720p",
+      "version": "1.0.1",
       "author": "Vini",
       "supportedTypes": ["movie", "tv"],
-      "filename": "providers/peachify.js",
+      "filename": "providers/megaembed.js",
       "enabled": true,
       "formats": ["m3u8", "mp4"],
       "contentLanguage": ["pt", "en"]
