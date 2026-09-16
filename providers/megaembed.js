@@ -1,4 +1,4 @@
-const BASE_URL = 'https://mgeb.top';
+const BASE_URL = 'https://megaembedapi.site';
 
 async function fetchWithHeaders(url, headers = {}) {
   const defaultHeaders = {
@@ -42,19 +42,42 @@ async function getQuality(url, headers) {
   }
 }
 
-async function buildStreams(sources, referer) {
+function buildEmbedUrl(tmdbId, mediaType, season, episode) {
+  const id = encodeURIComponent(tmdbId);
+
+  if (mediaType === 'movie') {
+    return `${BASE_URL}/embed/${id}`;
+  }
+
+  if (mediaType === 'tv') {
+    if (season !== null && episode !== null) {
+      return `${BASE_URL}/embed/${id}/${encodeURIComponent(season)}/${encodeURIComponent(episode)}`;
+    }
+    return `${BASE_URL}/embed/${id}`;
+  }
+
+  throw new Error('Unsupported media type');
+}
+
+async function buildStreams(html, embedUrl) {
+  const sourcesMatch = html.match(/var sources = (\[[\s\S]*?\]);/);
+  if (!sourcesMatch) {
+    throw new Error('Sources script not found');
+  }
+
+  const sources = JSON.parse(sourcesMatch[1]);
   const streams = [];
 
   for (const source of sources) {
     const quality = await getQuality(source.file, {
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-      'Referer': referer,
-      'Origin': referer
+      'Referer': embedUrl,
+      'Origin': BASE_URL
     });
 
     const stream = {
       name: 'MegaEmbed',
-      title: `1080p (${source.label})`,
+      title: `${quality >= 1080 ? '1080p' : quality >= 720 ? '720p' : quality >= 480 ? '480p' : 'Auto'} (${source.label || 'server'})`,
       url: source.file,
       quality: quality >= 1080 ? '1080p' : quality >= 720 ? '720p' : quality >= 480 ? '480p' : 'Auto',
       type: source.type,
@@ -62,8 +85,8 @@ async function buildStreams(sources, referer) {
       behaviorHints: {
         notWebReady: true,
         filename: source.file,
-        referer: referer,
-        origin: referer
+        referer: embedUrl,
+        origin: BASE_URL
       }
     };
 
@@ -74,31 +97,10 @@ async function buildStreams(sources, referer) {
 }
 
 async function fetchAndExtract(tmdbId, mediaType, season, episode) {
-  let embedUrl;
-
-  if (mediaType === 'movie') {
-    embedUrl = `${BASE_URL}/embed/${tmdbId}`;
-  } else if (mediaType === 'tv') {
-    if (season === null || episode === null) {
-      throw new Error('Season and episode are required for TV shows');
-    }
-    embedUrl = `${BASE_URL}/embed/${tmdbId}/${season}/${episode}`;
-  } else {
-    throw new Error('Unsupported media type');
-  }
-
+  const embedUrl = buildEmbedUrl(tmdbId, mediaType, season, episode);
   const response = await fetchWithHeaders(embedUrl);
   const html = await response.text();
-
-  const sourcesMatch = html.match(/var sources = (\[[\s\S]*?\]);/);
-  if (!sourcesMatch) {
-    throw new Error('Sources script not found');
-  }
-
-  const sourcesJson = sourcesMatch[1];
-  const sources = JSON.parse(sourcesJson);
-
-  return buildStreams(sources, embedUrl);
+  return buildStreams(html, embedUrl);
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
